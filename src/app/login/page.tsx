@@ -41,7 +41,8 @@ export default function LoginPage() {
             const data = await res.json();
 
             if (!res.ok) {
-                throw new Error(data.message || "Invalid credentials for this account");
+                const errorMessage = data.error ? `${data.message}: ${data.error}` : data.message;
+                throw new Error(errorMessage || "Invalid credentials for this account");
             }
 
             login(data.user, data.token);
