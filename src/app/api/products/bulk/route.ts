@@ -21,7 +21,7 @@ export async function POST(req: Request) {
                 await prisma.product.update({
                     where: { id: existing.id },
                     data: {
-                        stock: { increment: parseFloat(item.stock) || 0 },
+                        stock: { increment: Math.max(0, parseFloat(item.stock) || 0) },
                         price: parseFloat(item.price) || existing.price,
                         costPrice: parseFloat(item.costPrice) || existing.costPrice,
                     }

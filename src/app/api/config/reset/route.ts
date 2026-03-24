@@ -18,7 +18,7 @@ export async function POST(req: Request) {
         }
 
         await prisma.$transaction([
-            // 1. Purge Sales & Transactions (Child records first)
+            // 1. Purge Sales & Transactions
             prisma.orderItem.deleteMany(),
             prisma.order.deleteMany(),
             
@@ -28,19 +28,19 @@ export async function POST(req: Request) {
             
             // 3. Purge Credit & Contractor Transactions
             prisma.contractorTransaction.deleteMany(),
-            prisma.contractor.deleteMany(),
+            prisma.contractor.updateMany({ data: { balance: 0 } }),
             
             // 4. Purge Finance & Payments
             prisma.expense.deleteMany(),
             prisma.mpesaPayment.deleteMany(),
             
-            // 5. Purge Inventory
-            prisma.product.deleteMany(),
+            // 5. Reset Inventory Levels (Don't delete products)
+            prisma.product.updateMany({ data: { stock: 0 } }),
             
-            // 6. Purge Partners
-            prisma.vendor.deleteMany(),
+            // 6. Reset Partner Balances (Don't delete vendors)
+            prisma.vendor.updateMany({ data: { balance: 0 } }),
             
-            // 7. Purge System History
+            // 7. Clear Audit Log
             prisma.auditLog.deleteMany()
         ]);
 

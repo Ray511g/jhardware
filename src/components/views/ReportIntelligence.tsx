@@ -1,638 +1,230 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState } from "react";
 import {
-    FileSearch,
-    ChevronRight,
-    ChevronDown,
     Calendar,
-    Filter,
+    ChevronDown,
     Download,
-    Eye,
-    BarChart3,
+    FileText,
+    TrendingUp,
     Package,
     Users,
-    CreditCard,
-    ShieldCheck,
-    TrendingUp,
+    DollarSign,
+    Clock,
+    BarChart3,
     Search,
-    DownloadCloud,
-    FileText,
-    PieChart,
-    AlertCircle,
-    Lock
+    RefreshCw,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { useAuth } from "@/context/AuthContext";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-    generateTaxReport,
-    generateInventoryReport,
-    generateLedgerReport,
-    generateVendorReport,
-    generateContractorReport,
-    generatePaymentPatternsReport,
-    generateContractorStatementReport,
-    generatePOListReport,
-    generateCancelledInvoicesReport,
-    generateAuditTrailReport
+import { motion } from "framer-motion";
+import { 
+    generateLedgerReport, 
+    generateInventoryReport, 
+    generatePOListReport, 
+    generateFinancialReport, 
+    generateVendorReport, 
+    generateContractorAgingReport 
 } from "@/lib/pdf-service";
 import ReportPreviewModal from "@/components/modals/ReportPreviewModal";
-import { downloadCSV } from "@/lib/export-utils";
 
-type ReportType = {
-    id: string;
-    label: string;
+interface ReportCardProps {
+    title: string;
+    description: string;
     icon: any;
-    filters: string[];
-};
+    onClick: () => void;
+    isLoading?: boolean;
+}
 
-type Category = {
-    id: string;
-    label: string;
-    icon: any;
-    reports: ReportType[];
-};
-
-const reportHierarchy: Category[] = [
-    {
-        id: "finance",
-        label: "Revenue Intelligence",
-        icon: TrendingUp,
-        reports: [
-            { id: "daily-ledger", label: "Daily Transactional Ledger", icon: FileSearch, filters: ["period", "staff"] },
-            { id: "monthly-audit", label: "Monthly Performance Audit", icon: BarChart3, filters: ["period"] },
-            { id: "payment-channels", label: "Payment Channel Breakdown", icon: PieChart, filters: ["period"] },
-            { id: "sales-tax", label: "Sales Tax / VAT Summary", icon: ShieldCheck, filters: ["period"] },
-            { id: "cancelled-invoices", label: "Cancelled Invoices Audit", icon: AlertCircle, filters: ["period"] },
-        ]
-    },
-    {
-        id: "inventory",
-        label: "Inventory Analytics",
-        icon: Package,
-        reports: [
-            { id: "stock-valuation", label: "Live Stock Valuation Audit", icon: FileText, filters: ["category"] },
-            { id: "shortage-risk", label: "Critical Shortage Analysis", icon: AlertCircle, filters: ["level"] },
-            { id: "movement-history", label: "Product Velocity Report", icon: BarChart3, filters: ["product", "period"] },
-            { id: "price-list", label: "Current Master Price List", icon: FileText, filters: ["category"] },
-        ]
-    },
-    {
-        id: "procurement",
-        label: "Supply Chain Audit",
-        icon: DownloadCloud,
-        reports: [
-            { id: "vendor-liability", label: "Vendor Liability Statement", icon: Users, filters: ["vendor"] },
-            { id: "po-delivery", label: "PO Delivery Audit", icon: FileSearch, filters: ["status", "period"] },
-            { id: "po-ledger", label: "PO Global Ledger", icon: FileText, filters: ["period"] },
-        ]
-    },
-    {
-        id: "contractors",
-        label: "Credit & Debt Ledger",
-        icon: CreditCard,
-        reports: [
-            { id: "debt-aging", label: "Contractor Debt Aging", icon: AlertCircle, filters: ["contractor"] },
-            { id: "payment-patterns", label: "Contractor Payment Patterns", icon: BarChart3, filters: ["period"] },
-            { id: "new-customers", label: "New Contractor Acquisition", icon: Users, filters: ["period"] },
-            { id: "contractor-statement", label: "Individual Contractor Statement", icon: FileText, filters: ["contractor", "period"] },
-        ]
-    },
-    {
-        id: "compliance",
-        label: "System & Compliance",
-        icon: ShieldCheck,
-        reports: [
-            { id: "audit-trail", label: "System Audit Trail", icon: ShieldCheck, filters: ["period", "staff"] },
-            { id: "tax-export", label: "KRA PIN-Aligned Export", icon: Download, filters: ["period"] },
-        ]
-    }
-];
+const ReportCard = ({ title, description, icon: Icon, onClick, isLoading }: ReportCardProps) => (
+    <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 flex flex-col items-start gap-4 transition-all hover:shadow-md">
+        <div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center text-white">
+            <Icon className="w-6 h-6" />
+        </div>
+        <div className="space-y-1">
+            <h3 className="text-[15px] font-bold text-slate-800">{title}</h3>
+            <p className="text-[12px] text-slate-500 leading-tight">{description}</p>
+        </div>
+        <button
+            onClick={onClick}
+            disabled={isLoading}
+            className="mt-2 w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-[13px] font-bold flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+        >
+            {isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            Generate Report
+        </button>
+    </div>
+);
 
 export default function ReportIntelligence() {
-    const { orders, products, vendors, contractors, config, expenses, pos } = useApp();
-    const { user } = useAuth();
-    const [selectedReport, setSelectedReport] = useState<ReportType | null>(null);
-    const [expandedCats, setExpandedCats] = useState<string[]>(["finance"]);
-    const [isPreviewOpen, setIsPreviewOpen] = useState(false);
-    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-    const [showDownloadOptions, setShowDownloadOptions] = useState(false);
+    const { config } = useApp();
     const [filters, setFilters] = useState({
-        period: "This Month",
-        startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
-        endDate: new Date().toISOString().split('T')[0],
-        category: "All",
-        vendor: "All",
-        contractor: "All",
-        staff: "All",
-        month: new Date().toISOString().slice(0, 7)
+        from: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
+        to: new Date().toISOString().split('T')[0],
+        quickSelect: "Custom Range"
+    });
+    const [generating, setGenerating] = useState<string | null>(null);
+    const [preview, setPreview] = useState<{ isOpen: boolean; url: string | null; title: string }>({
+        isOpen: false,
+        url: null,
+        title: ""
     });
 
-    const handlePeriodChange = (period: string) => {
+    const handleQuickSelect = (val: string) => {
         const now = new Date();
-        let start = new Date();
-        let end = new Date();
+        let from = new Date();
+        let to = new Date();
 
-        switch (period) {
-            case "Today":
-                break;
-            case "Yesterday":
-                start.setDate(now.getDate() - 1);
-                end.setDate(now.getDate() - 1);
-                break;
-            case "Last 7 Days":
-                start.setDate(now.getDate() - 7);
-                break;
+        switch (val) {
             case "This Month":
-                start = new Date(now.getFullYear(), now.getMonth(), 1);
+                from = new Date(now.getFullYear(), now.getMonth(), 1);
                 break;
             case "Last Month":
-                start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-                end = new Date(now.getFullYear(), now.getMonth(), 0);
+                from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                to = new Date(now.getFullYear(), now.getMonth(), 0);
                 break;
             case "This Year":
-                start = new Date(now.getFullYear(), 0, 1);
+                from = new Date(now.getFullYear(), 0, 1);
                 break;
         }
 
         setFilters({
             ...filters,
-            period,
-            startDate: start.toISOString().split('T')[0],
-            endDate: end.toISOString().split('T')[0]
+            quickSelect: val,
+            from: from.toISOString().split('T')[0],
+            to: to.toISOString().split('T')[0]
         });
     };
 
-    // Strict Clearance Protocol
-    const canView = user?.role === "Admin" || user?.permissions?.includes("reports_view");
-
-    if (!canView) {
-        return (
-            <div className="flex flex-col items-center justify-center py-40 text-center opacity-50 grayscale animate-fade-in text-white">
-                <Lock className="w-16 h-16 text-rose-500 mb-6" />
-                <h2 className="text-2xl font-black uppercase tracking-[0.4em] text-rose-500 leading-none">Access Restricted</h2>
-                <p className="text-slate-500 mt-3 font-black uppercase tracking-widest text-[10px]">Your personnel profile lacks clearance for Intelligence Reports.</p>
-            </div>
-        );
-    }
-
-    const prepareData = () => {
-        if (!selectedReport) return [];
-        const start = new Date(filters.startDate);
-        const end = new Date(filters.endDate);
-        end.setHours(23, 59, 59, 999);
-
-        if (selectedReport.id === "daily-ledger" ||
-            selectedReport.id === "monthly-audit" ||
-            selectedReport.id === "sales-tax" ||
-            selectedReport.id === "tax-export" ||
-            selectedReport.id === "cancelled-invoices" ||
-            selectedReport.id === "payment-channels") {
-            return orders.filter(o => {
-                const d = new Date(o.date);
-                if (selectedReport.id === "cancelled-invoices") {
-                    return d >= start && d <= end && o.status === "Void";
-                }
-                return d >= start && d <= end && o.status !== "Void";
-            });
-        }
-
-        if (selectedReport.id === "stock-valuation" || selectedReport.id === "shortage-risk" || selectedReport.id === "price-list") {
-            if (selectedReport.id === "shortage-risk") {
-                return products.filter(p => (p.stock || 0) <= (p.minStock || 5));
+    const handleGenerate = async (type: string, title: string) => {
+        setGenerating(type);
+        try {
+            const res = await fetch(`/api/reports?type=${type}&from=${filters.from}&to=${filters.to}`);
+            const data = await res.json();
+            
+            let url = null;
+            switch(type) {
+                case "sales": url = await generateLedgerReport(data, config); break;
+                case "inventory": url = await generateInventoryReport(data, config); break;
+                case "po": url = await generatePOListReport(data, config); break;
+                case "finance": url = await generateFinancialReport(data, config); break;
+                case "vendors": url = await generateVendorReport(data, config); break;
+                case "aging": url = await generateContractorAgingReport(data, config); break;
             }
-            return products;
-        }
 
-        if (selectedReport.id === "movement-history") {
-            const movements = orders.flatMap(o =>
-                (o.items || []).map(item => ({
-                    ...item,
-                    date: o.date,
-                    orderNumber: o.orderNumber
-                }))
-            ).filter(m => {
-                const d = new Date(m.date);
-                return d >= start && d <= end;
-            });
-            return movements;
-        }
-
-        if (selectedReport.id === "vendor-liability") return vendors;
-        if (selectedReport.id === "po-delivery" || selectedReport.id === "po-ledger") {
-            return pos.filter(po => {
-                const d = new Date(po.date);
-                return d >= start && d <= end;
-            }).map(po => ({
-                ...po,
-                vendorName: vendors.find(v => v.id === po.vendorId)?.name || "External"
-            }));
-        }
-
-        if (selectedReport.id === "debt-aging") return contractors;
-
-        if (selectedReport.id === "new-customers") {
-            return contractors.filter(c => {
-                const d = new Date(c.createdAt);
-                return d >= start && d <= end;
-            });
-        }
-
-        if (selectedReport.id === "payment-patterns") {
-            const allTransactions = contractors.flatMap(c =>
-                (c.transactions || []).map(t => ({ ...t, contractorName: c.name }))
-            ).filter(t => t.type === "Payment");
-
-            return allTransactions.filter(t => {
-                const d = new Date(t.date);
-                return d >= start && d <= end;
-            });
-        }
-
-        if (selectedReport.id === "audit-trail") {
-            return orders.map(o => ({
-                id: o.id,
-                date: o.date,
-                action: "SALE",
-                module: "POS",
-                staffName: o.customerName || "System",
-                details: `Order ${o.orderNumber} completed via ${o.paymentMethod}`
-            })).filter(a => {
-                const d = new Date(a.date);
-                return d >= start && d <= end;
-            });
-        }
-
-        if (selectedReport.id === "contractor-statement") {
-            const targetContractor = contractors.find(c => c.id === filters.contractor);
-            if (!targetContractor && filters.contractor !== "All") return [];
-
-            return {
-                contractor: targetContractor,
-                orders: orders.filter((o: any) =>
-                    o.paymentMethod === "Credit" &&
-                    (filters.contractor === "All" || o.contractorId === filters.contractor) &&
-                    new Date(o.date) >= start && new Date(o.date) <= end
-                ),
-                transactions: contractors.flatMap(c =>
-                    (c.transactions || []).map(t => ({ ...t, contractorName: c.name, contractorId: c.id }))
-                ).filter(t =>
-                    (filters.contractor === "All" || t.contractorId === filters.contractor) &&
-                    new Date(t.date) >= start && new Date(t.date) <= end
-                )
-            };
-        }
-
-        return [];
-    };
-
-    const getReportUrl = (data: any) => {
-        if (!selectedReport) return null;
-        switch (selectedReport.id) {
-            case "stock-valuation":
-            case "price-list":
-                return generateInventoryReport(data, config);
-            case "daily-ledger":
-                return generateLedgerReport(data, config);
-            case "vendor-liability":
-                return generateVendorReport(data, config);
-            case "debt-aging":
-                return generateContractorReport(data, config);
-            case "payment-patterns":
-                return generatePaymentPatternsReport(data, config);
-            case "contractor-statement":
-                return generateContractorStatementReport(data, config, filters);
-            case "po-ledger":
-                return generatePOListReport(data, config);
-            case "cancelled-invoices":
-                return generateCancelledInvoicesReport(data, config);
-            case "audit-trail":
-                return generateAuditTrailReport(data, config);
-            default:
-                return generateTaxReport(data, config);
-        }
-    };
-
-    const handlePreview = () => {
-        if (!selectedReport) return;
-        const data = prepareData() as any;
-        const url = getReportUrl(data) as any;
-        setPreviewUrl(url);
-        setIsPreviewOpen(true);
-    };
-
-    const handleDownload = (format: "pdf" | "csv") => {
-        if (!selectedReport) return;
-        const data = prepareData() as any;
-
-        if (format === "pdf") {
-            const url = getReportUrl(data) as any;
-            if (!url) return;
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = `${selectedReport.label.replace(/\s+/g, "_")}.pdf`;
-            link.click();
-        } else {
-            let csvData: any[] = [];
-            const rawData = Array.isArray(data) ? data : [];
-
-            if (selectedReport.id === "audit-trail") {
-                csvData = rawData.map(l => ({
-                    Timestamp: new Date(l.date || l.timestamp).toLocaleString(),
-                    Actor: l.staffName,
-                    Module: l.module,
-                    Action: l.action,
-                    Details: l.details
-                }));
-            } else if (selectedReport.id.includes("stock") || selectedReport.id === "price-list") {
-                csvData = rawData.map(p => ({
-                    Product: p.name,
-                    Category: p.category,
-                    Price: p.price,
-                    Stock: p.stock,
-                    Value: (p.stock * p.price).toFixed(2)
-                }));
-            } else if (selectedReport.id === "vendor-liability") {
-                csvData = rawData.map(v => ({
-                    Vendor: v.name,
-                    Contact: v.contact,
-                    Email: v.email,
-                    Balance: v.balance
-                }));
-            } else {
-                csvData = rawData.map((item: any) => ({
-                    ID: item.orderNumber || item.id,
-                    Date: item.date ? new Date(item.date).toLocaleDateString() : 'N/A',
-                    Name: item.customerName || item.name || 'N/A',
-                    Total: item.total || 0,
-                    Method: item.paymentMethod || 'N/A'
-                }));
+            if (url) {
+                setPreview({ isOpen: true, url: url.toString(), title });
             }
-            downloadCSV(csvData, selectedReport.label.replace(/\s+/g, "_"));
+        } catch (error) {
+            console.error("Report generation failed:", error);
+            alert("Failed to generate report. Please check console.");
+        } finally {
+            setGenerating(null);
         }
-        setShowDownloadOptions(false);
-    };
-
-    const toggleCat = (id: string) => {
-        setExpandedCats(prev =>
-            prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]
-        );
     };
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 animate-fade-in relative z-10 text-white">
-            <div className="lg:col-span-1 space-y-4">
-                <div className="glass-card p-6 border-white/[0.03] bg-white/[0.01]">
-                    <h3 className="text-sm font-black text-white uppercase tracking-[0.2em] mb-8 flex items-center gap-3">
-                        <FileSearch className="w-5 h-5 text-teal-500" />
-                        Report Directory
-                    </h3>
-
-                    <div className="space-y-4 overflow-y-auto max-h-[70vh] pr-2 custom-scrollbar">
-                        {reportHierarchy.map((cat) => (
-                            <div key={cat.id} className="space-y-2">
-                                <button
-                                    onClick={() => toggleCat(cat.id)}
-                                    className="w-full flex items-center justify-between p-3 rounded-xl bg-slate-900/30 border border-white/5 hover:bg-slate-900/50 transition-all text-left group"
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <cat.icon className="w-4 h-4 text-slate-500 group-hover:text-teal-500 transition-colors" />
-                                        <span className="text-[10px] font-black uppercase text-slate-400 group-hover:text-white tracking-widest">{cat.label}</span>
-                                    </div>
-                                    {expandedCats.includes(cat.id) ? <ChevronDown className="w-3.5 h-3.5 text-slate-600" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-600" />}
-                                </button>
-
-                                <AnimatePresence>
-                                    {expandedCats.includes(cat.id) && (
-                                        <motion.div
-                                            initial={{ height: 0, opacity: 0 }}
-                                            animate={{ height: "auto", opacity: 1 }}
-                                            exit={{ height: 0, opacity: 0 }}
-                                            className="overflow-hidden space-y-1 pl-4"
-                                        >
-                                            {cat.reports.map((report) => (
-                                                <button
-                                                    key={report.id}
-                                                    onClick={() => setSelectedReport(report)}
-                                                    className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all text-left ${selectedReport?.id === report.id
-                                                        ? "bg-teal-500/10 border border-teal-500/20 text-teal-400 shadow-[0_0_20px_rgba(20,184,166,0.1)]"
-                                                        : "text-slate-500 hover:text-slate-300 hover:bg-white/5"
-                                                        }`}
-                                                >
-                                                    <report.icon className={`w-3.5 h-3.5 ${selectedReport?.id === report.id ? "text-teal-500" : "opacity-50"}`} />
-                                                    <span className="text-[10px] font-bold uppercase tracking-tight">{report.label}</span>
-                                                </button>
-                                            ))}
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
-                            </div>
-                        ))}
+        <div className="max-w-[1200px] mx-auto space-y-10 p-6 animate-fade-in text-slate-800">
+            {/* Filter Header */}
+            <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
+                <h2 className="text-lg font-bold mb-6 text-slate-900">Report Period</h2>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <div className="space-y-2">
+                        <label className="text-[12px] font-bold text-slate-500">From Date</label>
+                        <div className="relative">
+                            <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                            <input
+                                type="date"
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-12 pr-4 text-sm font-medium focus:outline-none focus:border-indigo-500 transition-all"
+                                value={filters.from}
+                                onChange={e => setFilters({ ...filters, from: e.target.value, quickSelect: "Custom Range" })}
+                            />
+                        </div>
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-[12px] font-bold text-slate-500">To Date</label>
+                        <div className="relative">
+                            <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                            <input
+                                type="date"
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-12 pr-4 text-sm font-medium focus:outline-none focus:border-indigo-500 transition-all"
+                                value={filters.to}
+                                onChange={e => setFilters({ ...filters, to: e.target.value, quickSelect: "Custom Range" })}
+                            />
+                        </div>
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-[12px] font-bold text-slate-500">Quick Select</label>
+                        <div className="relative">
+                            <select
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-4 text-sm font-medium focus:outline-none focus:border-indigo-500 transition-all appearance-none"
+                                value={filters.quickSelect}
+                                onChange={e => handleQuickSelect(e.target.value)}
+                            >
+                                <option>Custom Range</option>
+                                <option>This Month</option>
+                                <option>Last Month</option>
+                                <option>This Year</option>
+                            </select>
+                            <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <div className="lg:col-span-3 space-y-6">
-                {selectedReport ? (
-                    <div className="space-y-6 animate-in slide-in-from-right-4 duration-500">
-                        <div className="glass-card p-8 border-white/[0.03] bg-white/[0.01]">
-                            <div className="flex items-center justify-between mb-10">
-                                <div className="flex items-center gap-4">
-                                    <div className="p-3 bg-teal-500/10 rounded-2xl border border-teal-500/20">
-                                        <selectedReport.icon className="w-6 h-6 text-teal-500" />
-                                    </div>
-                                    <div>
-                                        <h2 className="text-xl font-black text-white uppercase tracking-tighter italic">{selectedReport.label}</h2>
-                                        <p className="text-[9px] text-slate-500 font-bold uppercase tracking-[0.3em] mt-1">Configuring report parameters...</p>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                    <button
-                                        onClick={handlePreview}
-                                        className="flex items-center gap-3 px-6 py-3 bg-white/5 hover:bg-white/10 border border-white/5 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-300 transition-all"
-                                    >
-                                        <Eye className="w-4 h-4" />
-                                        Preview
-                                    </button>
-
-                                    <div className="relative">
-                                        <button
-                                            onClick={() => setShowDownloadOptions(!showDownloadOptions)}
-                                            className="flex items-center gap-3 px-8 py-3 premium-gradient text-white rounded-xl shadow-lg hover:scale-105 active:scale-95 transition-all text-[10px] font-black uppercase tracking-widest"
-                                        >
-                                            <Download className="w-4 h-4" />
-                                            Generate Report
-                                        </button>
-
-                                        <AnimatePresence>
-                                            {showDownloadOptions && (
-                                                <motion.div
-                                                    initial={{ opacity: 0, y: 10 }}
-                                                    animate={{ opacity: 1, y: 0 }}
-                                                    exit={{ opacity: 0, y: 10 }}
-                                                    className="absolute right-0 mt-2 w-48 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden"
-                                                >
-                                                    <button
-                                                        onClick={() => handleDownload("pdf")}
-                                                        className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-white/5 text-[10px] font-black uppercase text-slate-300 transition-all"
-                                                    >
-                                                        <FileText className="w-4 h-4 text-rose-500" />
-                                                        Portable Document (PDF)
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleDownload("csv")}
-                                                        className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-white/5 text-[10px] font-black uppercase text-slate-300 transition-all border-t border-white/5"
-                                                    >
-                                                        <PieChart className="w-4 h-4 text-teal-500" />
-                                                        Data Sheet (CSV)
-                                                    </button>
-                                                </motion.div>
-                                            )}
-                                        </AnimatePresence>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                                <div className="space-y-3">
-                                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 ml-1 flex items-center gap-2">
-                                        <Calendar className="w-3 h-3 text-teal-500" /> Reporting Period
-                                    </label>
-                                    <div className="relative">
-                                        <select
-                                            title="Period Selection"
-                                            className="w-full bg-slate-950 border border-white/5 rounded-xl py-4 px-5 text-sm font-bold text-white focus:outline-none focus:border-teal-500/30 transition-all appearance-none"
-                                            value={filters.period}
-                                            onChange={e => handlePeriodChange(e.target.value)}
-                                        >
-                                            <option>Today</option>
-                                            <option>Yesterday</option>
-                                            <option>Last 7 Days</option>
-                                            <option>This Month</option>
-                                            <option>Last Month</option>
-                                            <option>This Year</option>
-                                            <option>Custom Range</option>
-                                        </select>
-                                        <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-600 pointer-events-none" />
-                                    </div>
-                                </div>
-
-                                {(filters.period === "Custom Range" || selectedReport.filters.includes("period")) && (
-                                    <>
-                                        <div className="space-y-3">
-                                            <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 ml-1 flex items-center gap-2">
-                                                <Calendar className="w-3 h-3 text-teal-500" /> Start Date
-                                            </label>
-                                            <div className="relative group/date">
-                                                <input
-                                                    type="date"
-                                                    className="w-full bg-slate-950 border border-white/5 rounded-xl py-4 px-5 text-sm font-bold text-white focus:outline-none focus:border-teal-500/30 transition-all [color-scheme:dark]"
-                                                    value={filters.startDate}
-                                                    onChange={e => setFilters({ ...filters, startDate: e.target.value })}
-                                                />
-                                                <Calendar className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-teal-500/50 pointer-events-none group-focus-within/date:text-teal-500 transition-colors" />
-                                            </div>
-                                        </div>
-                                        <div className="space-y-3">
-                                            <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 ml-1 flex items-center gap-2">
-                                                <Calendar className="w-3 h-3 text-teal-500" /> End Date
-                                            </label>
-                                            <div className="relative group/date">
-                                                <input
-                                                    type="date"
-                                                    className="w-full bg-slate-950 border border-white/5 rounded-xl py-4 px-5 text-sm font-bold text-white focus:outline-none focus:border-teal-500/30 transition-all [color-scheme:dark]"
-                                                    value={filters.endDate}
-                                                    onChange={e => setFilters({ ...filters, endDate: e.target.value })}
-                                                />
-                                                <Calendar className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-teal-500/50 pointer-events-none group-focus-within/date:text-teal-500 transition-colors" />
-                                            </div>
-                                        </div>
-                                    </>
-                                )}
-
-                                {selectedReport.filters.includes("category") && (
-                                    <div className="space-y-3">
-                                        <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 ml-1 flex items-center gap-2">
-                                            <Filter className="w-3 h-3 text-teal-500" /> Report Category
-                                        </label>
-                                        <div className="relative">
-                                            <select
-                                                title="Report Category Selection"
-                                                className="w-full bg-slate-950 border border-white/5 rounded-xl py-4 px-5 text-sm font-bold text-white focus:outline-none focus:border-teal-500/30 transition-all appearance-none"
-                                                value={filters.category}
-                                                onChange={e => setFilters({ ...filters, category: e.target.value })}
-                                            >
-                                                <option>All Segments</option>
-                                                <option>Retail Channel</option>
-                                                <option>WholeSale Dept</option>
-                                            </select>
-                                            <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-600 pointer-events-none" />
-                                        </div>
-                                    </div>
-                                )}
-
-                                {selectedReport.filters.includes("contractor") && (
-                                    <div className="space-y-3">
-                                        <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 ml-1 flex items-center gap-2">
-                                            <Users className="w-3 h-3 text-teal-500" /> Select Contractor
-                                        </label>
-                                        <div className="relative">
-                                            <select
-                                                title="Contractor Selection"
-                                                className="w-full bg-slate-950 border border-white/5 rounded-xl py-4 px-5 text-sm font-bold text-white focus:outline-none focus:border-teal-500/30 transition-all appearance-none"
-                                                value={filters.contractor}
-                                                onChange={e => setFilters({ ...filters, contractor: e.target.value })}
-                                            >
-                                                <option value="All">All Contractors</option>
-                                                {contractors.map(c => (
-                                                    <option key={c.id} value={c.id}>{c.name}</option>
-                                                ))}
-                                            </select>
-                                            <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-600 pointer-events-none" />
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="h-[40vh] border border-dashed border-white/5 bg-white/[0.005] rounded-3xl flex flex-col items-center justify-center text-center p-12">
-                            <div className="w-16 h-16 bg-slate-900/50 rounded-full flex items-center justify-center mb-6 border border-white/5 opacity-30">
-                                <BarChart3 className="w-8 h-8 text-slate-500" />
-                            </div>
-                            <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-600 max-w-xs leading-loose">
-                                Report parameters active. Use the actions above to preview or generate the formal document.
-                            </p>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="h-[70vh] flex flex-col items-center justify-center text-center glass-card border-dashed border-white/5 space-y-8 p-20 animate-fade-in">
-                        <div className="relative">
-                            <div className="absolute inset-0 bg-teal-500/20 blur-[100px] animate-pulse"></div>
-                            <BarChart3 className="w-24 h-24 text-teal-800 relative z-10" />
-                        </div>
-                        <div className="space-y-4 relative z-10">
-                            <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase underline decoration-teal-500/30 decoration-4 underline-offset-8">Reports <span className="text-teal-500">Center</span></h2>
-                            <p className="text-slate-500 text-xs font-black uppercase tracking-[0.4em] max-w-md mx-auto leading-loose">
-                                Select a report from the menu to begin data analysis and document generation.
-                            </p>
-                        </div>
-                        <div className="w-full max-w-xs h-1 bg-slate-900 rounded-full overflow-hidden">
-                            <motion.div
-                                className="h-full bg-teal-500/30"
-                                animate={{ x: ["-100%", "100%"] }}
-                                transition={{ repeat: Infinity, duration: 3, ease: "linear" }}
-                            />
-                        </div>
-                    </div>
-                )}
+            {/* Reports Grid */}
+            <div className="space-y-6">
+                <h2 className="text-xl font-bold text-slate-900 ml-2">Available Reports</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <ReportCard 
+                        title="Sales Summary Report"
+                        description="Detailed sales transactions and revenue analysis"
+                        icon={TrendingUp}
+                        isLoading={generating === "sales"}
+                        onClick={() => handleGenerate("sales", "Sales Summary Report")}
+                    />
+                    <ReportCard 
+                        title="Inventory Audit Report"
+                        description="Stock levels, movements, and valuation"
+                        icon={Package}
+                        isLoading={generating === "inventory"}
+                        onClick={() => handleGenerate("inventory", "Inventory Audit Report")}
+                    />
+                    <ReportCard 
+                        title="Purchase Order Report"
+                        description="All purchase orders and supplier transactions"
+                        icon={FileText}
+                        isLoading={generating === "po"}
+                        onClick={() => handleGenerate("po", "Purchase Order Report")}
+                    />
+                    <ReportCard 
+                        title="Financial Statement"
+                        description="Profit & loss, balance sheet, cash flow"
+                        icon={DollarSign}
+                        isLoading={generating === "finance"}
+                        onClick={() => handleGenerate("finance", "Financial Statement")}
+                    />
+                    <ReportCard 
+                        title="Vendor Performance"
+                        description="Vendor analysis and procurement metrics"
+                        icon={Users}
+                        isLoading={generating === "vendors"}
+                        onClick={() => handleGenerate("vendors", "Vendor Performance Report")}
+                    />
+                    <ReportCard 
+                        title="Contractors Aging Analysis"
+                        description="Individual contractor debt and payment patterns"
+                        icon={Clock}
+                        isLoading={generating === "aging"}
+                        onClick={() => handleGenerate("aging", "Contractors Aging Analysis")}
+                    />
+                </div>
             </div>
 
-            <ReportPreviewModal
-                isOpen={isPreviewOpen}
-                onClose={() => setIsPreviewOpen(false)}
-                pdfUrl={previewUrl}
-                title={selectedReport?.label || "Intelligence Report"}
+            <ReportPreviewModal 
+                isOpen={preview.isOpen}
+                onClose={() => setPreview({ ...preview, isOpen: false })}
+                pdfUrl={preview.url}
+                title={preview.title}
             />
         </div>
     );

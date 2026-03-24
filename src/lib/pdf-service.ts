@@ -707,3 +707,67 @@ export const generateAuditTrailReport = (logs: any[], config?: any) => {
     return doc.output('bloburl');
 };
 
+export const generateFinancialReport = (data: any, config?: any) => {
+    const doc = new jsPDF();
+    const startY = applyReportHeader(doc, "Financial Statement (P&L)", config);
+
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    doc.text("Summary Analytics", 20, startY + 10);
+
+    const summaryRows = [
+        ["Total Revenue", `Kshs ${data.revenue.toLocaleString()}`],
+        ["Total Expenses", `Kshs ${data.expenses.toLocaleString()}`],
+        ["Net Profit/Loss", `Kshs ${data.netProfit.toLocaleString()}`]
+    ];
+
+    autoTable(doc, {
+        startY: startY + 15,
+        body: summaryRows,
+        theme: "grid",
+        styles: { fontSize: 10, cellPadding: 5 },
+        columnStyles: { 0: { fontStyle: 'bold' }, 1: { halign: 'right' } }
+    });
+
+    const finalY = (doc as any).lastAutoTable.finalY + 10;
+    doc.text("Expense Breakdown", 20, finalY);
+
+    autoTable(doc, {
+        startY: finalY + 5,
+        head: [["Date", "Category", "Reason", "Amount (Kshs)"]],
+        body: data.expenseDetails.map((e: any) => [
+            new Date(e.date).toLocaleDateString(),
+            e.category,
+            e.reason,
+            e.amount.toLocaleString()
+        ]),
+        theme: "striped",
+        headStyles: { fillColor: [79, 70, 229] } // indigo
+    });
+
+    return doc.output('bloburl');
+};
+
+export const generateContractorAgingReport = (data: any, config?: any) => {
+    const doc = new jsPDF();
+    const startY = applyReportHeader(doc, "Contractor Aging Analysis", config);
+
+    doc.setFontSize(10);
+    doc.text(`Active Debtors tracked: ${data.contractors.length}`, 20, startY);
+
+    autoTable(doc, {
+        startY: startY + 10,
+        head: [["Contractor", "Phone", "Last Transaction", "Total Balance (Kshs)"]],
+        body: data.contractors.map((c: any) => [
+            c.name,
+            c.phone,
+            c.transactions?.[0] ? new Date(c.transactions[0].date).toLocaleDateString() : "No Activity",
+            c.balance.toLocaleString()
+        ]),
+        theme: "grid",
+        headStyles: { fillColor: [5, 150, 105] } // emerald
+    });
+
+    return doc.output('bloburl');
+};
+
