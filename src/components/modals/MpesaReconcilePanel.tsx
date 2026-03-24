@@ -195,10 +195,9 @@ export default function MpesaReconcilePanel({ total, onConfirm, confirmedRef }: 
     return (
         <div className="space-y-3 animate-in slide-in-from-top-2 duration-300">
 
-            {/* Header */}
             <div className="flex items-center gap-2">
                 <Smartphone className="w-3 h-3 text-teal-500" />
-                <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">M-Pesa — Till 5274604</span>
+                <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">M-Pesa Reconciliation</span>
             </div>
 
             {/* Bill amount */}
