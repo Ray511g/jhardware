@@ -1,0 +1,212 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  sku         String?  @unique
+  name        String
+  category    String
+  stock       Float    @default(0)
+  minStock    Float    @default(10)
+  price       Float
+  costPrice   Float
+  unit        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  orderItems  OrderItem[]
+
+  @@index([category])
+  @@index([name])
+}
+
+model Vendor {
+  id        String   @id @default(cuid())
+  name      String
+  type      String
+  contact   String
+  email     String?
+  address   String?
+  rating    Float    @default(5.0)
+  balance   Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  pos       PurchaseOrder[]
+  transactions VendorTransaction[]
+
+  @@index([name])
+}
+
+model Order {
+  id            String      @id @default(cuid())
+  orderNumber   String      @unique
+  date          DateTime    @default(now())
+  total         Float
+  paymentMethod String      @default("Cash") // Cash, Mpesa, Card, Credit
+  status        String      @default("Completed") // Completed, Pending, Void
+  
+  customerName   String?
+  customerPhone  String?
+  transactionRef String? // e.g. Mpesa Receipt No.
+  buyerKraPin    String?
+
+  items         OrderItem[]
+  contractorId  String?
+  contractor    Contractor? @relation(fields: [contractorId], references: [id])
+
+  @@index([date])
+  @@index([orderNumber])
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id])
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Float
+  price     Float
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model Contractor {
+  id           String   @id @default(cuid())
+  name         String
+  phone        String
+  balance      Float    @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  orders       Order[]
+  transactions ContractorTransaction[]
+
+  @@index([name])
+}
+
+model ContractorTransaction {
+  id           String      @id @default(cuid())
+  contractorId String
+  contractor   Contractor  @relation(fields: [contractorId], references: [id])
+  date         DateTime    @default(now())
+  amount       Float
+  type         String      // Credit, Payment
+  reference    String?
+
+  @@index([contractorId])
+  @@index([date])
+}
+
+model VendorTransaction {
+  id           String      @id @default(cuid())
+  vendorId     String
+  vendor       Vendor      @relation(fields: [vendorId], references: [id])
+  poId         String?     // Optional link to PO
+  po           PurchaseOrder? @relation(fields: [poId], references: [id])
+  date         DateTime    @default(now())
+  amount       Float
+  method       String      // Cash, Mpesa, Bank Transfer
+  reference    String?
+
+  @@index([vendorId])
+  @@index([date])
+}
+
+model PurchaseOrder {
+  id        String   @id @default(cuid())
+  poNumber  String   @unique
+  vendorId  String
+  vendor    Vendor   @relation(fields: [vendorId], references: [id])
+  status    String   @default("Pending") // Pending, Delivered, Cancelled
+  date      DateTime @default(now())
+  total     Float
+  items     String   // JSON string
+  paymentMethod String @default("Credit") // Cash, Credit
+  paidAmount    Float  @default(0)
+  transactions VendorTransaction[]
+
+  @@index([poNumber])
+  @@index([vendorId])
+  @@index([date])
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  reason      String
+  amount      Float
+  category    String
+  date        DateTime @default(now())
+
+  @@index([category])
+  @@index([date])
+}
+
+model Staff {
+  id          String   @id @default(cuid())
+  name        String
+  username    String   @unique
+  password    String
+  role        String   @default("Staff") // Admin, Manager, Staff
+  permissions String?  // JSON string of specific permissions
+  status      String   @default("Active")
+  shifts      String?
+  lastSeen    DateTime @default(now())
+
+  @@index([username])
+}
+
+model BusinessConfig {
+  id            String   @id @default("singleton")
+  name          String   @default("BIASHARA POS")
+  location      String?  @default("Main Warehouse, Nairobi")
+  phone         String?  @default("+254 7XX XXX XXX")
+  email         String?  @default("info@biashara-hardware.com")
+  taxNumber     String?  // PIN Number
+  taxPercentage Float    @default(16.0)
+  taxInclusive  Boolean  @default(true)
+  mpesaTill     String?
+  mpesaPaybill  String?
+  mpesaAccount  String?
+  updatedAt     DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  staffId   String
+  staffName String
+  action    String   // CREATE, UPDATE, DELETE, LOGIN, VOID
+  module    String   // Inventory, POS, Staff, Vendors, Contractors
+  details   String?  // JSON string or description
+  timestamp DateTime @default(now())
+
+  @@index([timestamp])
+  @@index([module])
+}
+
+model MpesaPayment {
+  id              String   @id @default(cuid())
+  transactionCode String   @unique  // e.g. RBA12345XY
+  phone           String
+  amount          Float
+  tillNumber      String
+  accountRef      String?
+  firstName       String?
+  middleName      String?
+  lastName        String?
+  transactedAt    DateTime @default(now())
+  status          String   @default("unmatched") // unmatched, matched, rejected
+  orderId         String?  // linked sale after reconciliation
+  createdAt       DateTime @default(now())
+
+  @@index([status])
+  @@index([transactedAt])
+  @@index([transactionCode])
+}
