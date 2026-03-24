@@ -4,7 +4,7 @@ import { jwtVerify } from "jose";
 
 const JWT_SECRET = process.env.JWT_SECRET || "biashara-fallback-secret-2026";
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
     const token = request.cookies.get("biashara_auth_token")?.value;
     const { pathname } = request.nextUrl;
 
