@@ -45,6 +45,7 @@ export interface Contractor {
     name: string;
     phone: string;
     balance: number;
+    createdAt: string;
     transactions: { date: string; amount: number; type: "Credit" | "Payment"; reference: string }[];
 }
 
@@ -565,16 +566,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
             body: JSON.stringify({ confirmation }),
         });
         if (res.ok) {
-            // Refresh everything
-            await Promise.all([
-                fetchProducts(),
-                fetchOrders(),
-                fetchVendors(),
-                fetchContractors(),
-                fetchExpenses(),
-                fetchPOs()
-            ]);
-            alert("System Core Reset Successful. Dashboard is now at zero.");
+            // Clear all local states immediately
+            setProducts([]);
+            setOrders([]);
+            setVendors([]);
+            setContractors([]);
+            setExpenses([]);
+            setPOs([]);
+            
+            // Re-fetch configuration just in case, but keep staff as they are preserved
+            await fetchConfig();
+            
+            alert("System Core Reset Successful. Dashboard is now at zero. All transactional data has been purged.");
         } else {
             const error = await res.json();
             alert(`Reset Failed: ${error.error || "Unknown Error"}`);

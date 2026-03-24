@@ -33,7 +33,9 @@ import {
     generateContractorReport,
     generatePaymentPatternsReport,
     generateContractorStatementReport,
-    generatePOListReport
+    generatePOListReport,
+    generateCancelledInvoicesReport,
+    generateAuditTrailReport
 } from "@/lib/pdf-service";
 import ReportPreviewModal from "@/components/modals/ReportPreviewModal";
 import { downloadCSV } from "@/lib/export-utils";
@@ -58,9 +60,11 @@ const reportHierarchy: Category[] = [
         label: "Revenue Intelligence",
         icon: TrendingUp,
         reports: [
-            { id: "daily-ledger", label: "Daily Transactional Ledger", icon: FileSearch, filters: ["date", "staff"] },
-            { id: "monthly-audit", label: "Monthly Performance Audit", icon: BarChart3, filters: ["month"] },
-            { id: "payment-channels", label: "Payment Channel Breakdown", icon: PieChart, filters: ["dateRange"] },
+            { id: "daily-ledger", label: "Daily Transactional Ledger", icon: FileSearch, filters: ["period", "staff"] },
+            { id: "monthly-audit", label: "Monthly Performance Audit", icon: BarChart3, filters: ["period"] },
+            { id: "payment-channels", label: "Payment Channel Breakdown", icon: PieChart, filters: ["period"] },
+            { id: "sales-tax", label: "Sales Tax / VAT Summary", icon: ShieldCheck, filters: ["period"] },
+            { id: "cancelled-invoices", label: "Cancelled Invoices Audit", icon: AlertCircle, filters: ["period"] },
         ]
     },
     {
@@ -70,7 +74,8 @@ const reportHierarchy: Category[] = [
         reports: [
             { id: "stock-valuation", label: "Live Stock Valuation Audit", icon: FileText, filters: ["category"] },
             { id: "shortage-risk", label: "Critical Shortage Analysis", icon: AlertCircle, filters: ["level"] },
-            { id: "movement-history", label: "Product Velocity report", icon: BarChart3, filters: ["product", "dateRange"] },
+            { id: "movement-history", label: "Product Velocity Report", icon: BarChart3, filters: ["product", "period"] },
+            { id: "price-list", label: "Current Master Price List", icon: FileText, filters: ["category"] },
         ]
     },
     {
@@ -79,27 +84,28 @@ const reportHierarchy: Category[] = [
         icon: DownloadCloud,
         reports: [
             { id: "vendor-liability", label: "Vendor Liability Statement", icon: Users, filters: ["vendor"] },
-            { id: "po-delivery", label: "PO Delivery Audit", icon: FileSearch, filters: ["status", "dateRange"] },
-            { id: "po-ledger", label: "PO Global Ledger", icon: FileText, filters: ["dateRange"] },
+            { id: "po-delivery", label: "PO Delivery Audit", icon: FileSearch, filters: ["status", "period"] },
+            { id: "po-ledger", label: "PO Global Ledger", icon: FileText, filters: ["period"] },
         ]
     },
     {
         id: "contractors",
-        label: "Credit & Debt",
+        label: "Credit & Debt Ledger",
         icon: CreditCard,
         reports: [
             { id: "debt-aging", label: "Contractor Debt Aging", icon: AlertCircle, filters: ["contractor"] },
-            { id: "payment-patterns", label: "Contractor Payment Patterns", icon: BarChart3, filters: ["dateRange"] },
-            { id: "contractor-statement", label: "Contractor Statement", icon: FileText, filters: ["contractor", "dateRange"] },
+            { id: "payment-patterns", label: "Contractor Payment Patterns", icon: BarChart3, filters: ["period"] },
+            { id: "new-customers", label: "New Contractor Acquisition", icon: Users, filters: ["period"] },
+            { id: "contractor-statement", label: "Individual Contractor Statement", icon: FileText, filters: ["contractor", "period"] },
         ]
     },
     {
-        id: "fiscal",
-        label: "Fiscal Compliance",
+        id: "compliance",
+        label: "System & Compliance",
         icon: ShieldCheck,
         reports: [
-            { id: "vat-summary", label: "VAT Liability Summary", icon: ShieldCheck, filters: ["month"] },
-            { id: "tax-export", label: "KRA PIN-Aligned Export", icon: Download, filters: ["dateRange"] },
+            { id: "audit-trail", label: "System Audit Trail", icon: ShieldCheck, filters: ["period", "staff"] },
+            { id: "tax-export", label: "KRA PIN-Aligned Export", icon: Download, filters: ["period"] },
         ]
     }
 ];
@@ -113,6 +119,7 @@ export default function ReportIntelligence() {
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [showDownloadOptions, setShowDownloadOptions] = useState(false);
     const [filters, setFilters] = useState({
+        period: "This Month",
         startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
         endDate: new Date().toISOString().split('T')[0],
         category: "All",
@@ -121,6 +128,41 @@ export default function ReportIntelligence() {
         staff: "All",
         month: new Date().toISOString().slice(0, 7)
     });
+
+    const handlePeriodChange = (period: string) => {
+        const now = new Date();
+        let start = new Date();
+        let end = new Date();
+
+        switch (period) {
+            case "Today":
+                break;
+            case "Yesterday":
+                start.setDate(now.getDate() - 1);
+                end.setDate(now.getDate() - 1);
+                break;
+            case "Last 7 Days":
+                start.setDate(now.getDate() - 7);
+                break;
+            case "This Month":
+                start = new Date(now.getFullYear(), now.getMonth(), 1);
+                break;
+            case "Last Month":
+                start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                end = new Date(now.getFullYear(), now.getMonth(), 0);
+                break;
+            case "This Year":
+                start = new Date(now.getFullYear(), 0, 1);
+                break;
+        }
+
+        setFilters({
+            ...filters,
+            period,
+            startDate: start.toISOString().split('T')[0],
+            endDate: end.toISOString().split('T')[0]
+        });
+    };
 
     // Strict Clearance Protocol
     const canView = user?.role === "Admin" || user?.permissions?.includes("reports_view");
@@ -143,16 +185,20 @@ export default function ReportIntelligence() {
 
         if (selectedReport.id === "daily-ledger" ||
             selectedReport.id === "monthly-audit" ||
-            selectedReport.id === "vat-summary" ||
+            selectedReport.id === "sales-tax" ||
             selectedReport.id === "tax-export" ||
+            selectedReport.id === "cancelled-invoices" ||
             selectedReport.id === "payment-channels") {
             return orders.filter(o => {
                 const d = new Date(o.date);
-                return d >= start && d <= end;
+                if (selectedReport.id === "cancelled-invoices") {
+                    return d >= start && d <= end && o.status === "Void";
+                }
+                return d >= start && d <= end && o.status !== "Void";
             });
         }
 
-        if (selectedReport.id === "stock-valuation" || selectedReport.id === "shortage-risk") {
+        if (selectedReport.id === "stock-valuation" || selectedReport.id === "shortage-risk" || selectedReport.id === "price-list") {
             if (selectedReport.id === "shortage-risk") {
                 return products.filter(p => (p.stock || 0) <= (p.minStock || 5));
             }
@@ -186,6 +232,13 @@ export default function ReportIntelligence() {
 
         if (selectedReport.id === "debt-aging") return contractors;
 
+        if (selectedReport.id === "new-customers") {
+            return contractors.filter(c => {
+                const d = new Date(c.createdAt);
+                return d >= start && d <= end;
+            });
+        }
+
         if (selectedReport.id === "payment-patterns") {
             const allTransactions = contractors.flatMap(c =>
                 (c.transactions || []).map(t => ({ ...t, contractorName: c.name }))
@@ -193,6 +246,20 @@ export default function ReportIntelligence() {
 
             return allTransactions.filter(t => {
                 const d = new Date(t.date);
+                return d >= start && d <= end;
+            });
+        }
+
+        if (selectedReport.id === "audit-trail") {
+            return orders.map(o => ({
+                id: o.id,
+                date: o.date,
+                action: "SALE",
+                module: "POS",
+                staffName: o.customerName || "System",
+                details: `Order ${o.orderNumber} completed via ${o.paymentMethod}`
+            })).filter(a => {
+                const d = new Date(a.date);
                 return d >= start && d <= end;
             });
         }
@@ -220,37 +287,37 @@ export default function ReportIntelligence() {
         return [];
     };
 
+    const getReportUrl = (data: any) => {
+        if (!selectedReport) return null;
+        switch (selectedReport.id) {
+            case "stock-valuation":
+            case "price-list":
+                return generateInventoryReport(data, config);
+            case "daily-ledger":
+                return generateLedgerReport(data, config);
+            case "vendor-liability":
+                return generateVendorReport(data, config);
+            case "debt-aging":
+                return generateContractorReport(data, config);
+            case "payment-patterns":
+                return generatePaymentPatternsReport(data, config);
+            case "contractor-statement":
+                return generateContractorStatementReport(data, config, filters);
+            case "po-ledger":
+                return generatePOListReport(data, config);
+            case "cancelled-invoices":
+                return generateCancelledInvoicesReport(data, config);
+            case "audit-trail":
+                return generateAuditTrailReport(data, config);
+            default:
+                return generateTaxReport(data, config);
+        }
+    };
+
     const handlePreview = () => {
         if (!selectedReport) return;
         const data = prepareData() as any;
-        let url: any;
-
-        switch (selectedReport.id) {
-            case "stock-valuation":
-                url = generateInventoryReport(data, config);
-                break;
-            case "daily-ledger":
-                url = generateLedgerReport(data, config);
-                break;
-            case "vendor-liability":
-                url = generateVendorReport(data, config);
-                break;
-            case "debt-aging":
-                url = generateContractorReport(data, config);
-                break;
-            case "payment-patterns":
-                url = generatePaymentPatternsReport(data, config);
-                break;
-            case "contractor-statement":
-                url = generateContractorStatementReport(data, config, filters);
-                break;
-            case "po-ledger":
-                url = generatePOListReport(data, config);
-                break;
-            default:
-                url = generateTaxReport(data, config);
-        }
-
+        const url = getReportUrl(data) as any;
         setPreviewUrl(url);
         setIsPreviewOpen(true);
     };
@@ -260,44 +327,48 @@ export default function ReportIntelligence() {
         const data = prepareData() as any;
 
         if (format === "pdf") {
-            let url: any;
-            switch (selectedReport.id) {
-                case "stock-valuation":
-                    url = generateInventoryReport(data, config);
-                    break;
-                case "daily-ledger":
-                    url = generateLedgerReport(data, config);
-                    break;
-                case "vendor-liability":
-                    url = generateVendorReport(data, config);
-                    break;
-                case "debt-aging":
-                    url = generateContractorReport(data, config);
-                    break;
-                case "payment-patterns":
-                    url = generatePaymentPatternsReport(data, config);
-                    break;
-                case "contractor-statement":
-                    url = generateContractorStatementReport(data, config, filters);
-                    break;
-                case "po-ledger":
-                    url = generatePOListReport(data, config);
-                    break;
-                default:
-                    url = generateTaxReport(data, config);
-            }
+            const url = getReportUrl(data) as any;
+            if (!url) return;
             const link = document.createElement("a");
             link.href = url;
             link.download = `${selectedReport.label.replace(/\s+/g, "_")}.pdf`;
             link.click();
         } else {
-            const csvData = (Array.isArray(data) ? data : []).map((item: any) => ({
-                ID: item.orderNumber || item.id,
-                Date: item.date ? new Date(item.date).toLocaleDateString() : 'N/A',
-                Name: item.name || 'N/A',
-                Total: item.total || 0,
-                Method: item.paymentMethod || 'N/A'
-            }));
+            let csvData: any[] = [];
+            const rawData = Array.isArray(data) ? data : [];
+
+            if (selectedReport.id === "audit-trail") {
+                csvData = rawData.map(l => ({
+                    Timestamp: new Date(l.date || l.timestamp).toLocaleString(),
+                    Actor: l.staffName,
+                    Module: l.module,
+                    Action: l.action,
+                    Details: l.details
+                }));
+            } else if (selectedReport.id.includes("stock") || selectedReport.id === "price-list") {
+                csvData = rawData.map(p => ({
+                    Product: p.name,
+                    Category: p.category,
+                    Price: p.price,
+                    Stock: p.stock,
+                    Value: (p.stock * p.price).toFixed(2)
+                }));
+            } else if (selectedReport.id === "vendor-liability") {
+                csvData = rawData.map(v => ({
+                    Vendor: v.name,
+                    Contact: v.contact,
+                    Email: v.email,
+                    Balance: v.balance
+                }));
+            } else {
+                csvData = rawData.map((item: any) => ({
+                    ID: item.orderNumber || item.id,
+                    Date: item.date ? new Date(item.date).toLocaleDateString() : 'N/A',
+                    Name: item.customerName || item.name || 'N/A',
+                    Total: item.total || 0,
+                    Method: item.paymentMethod || 'N/A'
+                }));
+            }
             downloadCSV(csvData, selectedReport.label.replace(/\s+/g, "_"));
         }
         setShowDownloadOptions(false);
@@ -423,8 +494,31 @@ export default function ReportIntelligence() {
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                                {selectedReport.filters.includes("dateRange") && (
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                                <div className="space-y-3">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 ml-1 flex items-center gap-2">
+                                        <Calendar className="w-3 h-3 text-teal-500" /> Reporting Period
+                                    </label>
+                                    <div className="relative">
+                                        <select
+                                            title="Period Selection"
+                                            className="w-full bg-slate-950 border border-white/5 rounded-xl py-4 px-5 text-sm font-bold text-white focus:outline-none focus:border-teal-500/30 transition-all appearance-none"
+                                            value={filters.period}
+                                            onChange={e => handlePeriodChange(e.target.value)}
+                                        >
+                                            <option>Today</option>
+                                            <option>Yesterday</option>
+                                            <option>Last 7 Days</option>
+                                            <option>This Month</option>
+                                            <option>Last Month</option>
+                                            <option>This Year</option>
+                                            <option>Custom Range</option>
+                                        </select>
+                                        <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-600 pointer-events-none" />
+                                    </div>
+                                </div>
+
+                                {(filters.period === "Custom Range" || selectedReport.filters.includes("period")) && (
                                     <>
                                         <div className="space-y-3">
                                             <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 ml-1 flex items-center gap-2">

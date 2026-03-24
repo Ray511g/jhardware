@@ -660,3 +660,50 @@ export const generatePOListReport = (pos: any[], config?: any) => {
     return doc.output('bloburl');
 };
 
+export const generateCancelledInvoicesReport = (orders: any[], config?: any) => {
+    const doc = new jsPDF();
+    const startY = applyReportHeader(doc, "Cancelled Invoices Audit", config);
+
+    doc.setFontSize(10);
+    doc.text(`Total Cancelled Invoices: ${orders.length}`, 20, startY);
+
+    autoTable(doc, {
+        startY: startY + 10,
+        head: [["Date", "Order #", "Amount (Kshs)", "Reason"]],
+        body: orders.map(o => [
+            new Date(o.date).toLocaleDateString(),
+            o.orderNumber || "N/A",
+            (o.total || 0).toLocaleString(),
+            "Administrative Void"
+        ]),
+        theme: "grid",
+        headStyles: { fillColor: [225, 29, 72] } // rose-600
+    });
+
+    return doc.output('bloburl');
+};
+
+export const generateAuditTrailReport = (logs: any[], config?: any) => {
+    const doc = new jsPDF();
+    const startY = applyReportHeader(doc, "System Activity & Audit Trail", config);
+
+    doc.setFontSize(10);
+    doc.text(`Total Log Entries: ${logs.length}`, 20, startY);
+
+    autoTable(doc, {
+        startY: startY + 10,
+        head: [["Timestamp", "Actor", "Module", "Action", "Details"]],
+        body: logs.map(l => [
+            new Date(l.date || l.timestamp).toLocaleString(),
+            l.staffName || "System",
+            l.module || "POS",
+            l.action || "LOG",
+            l.details || "N/A"
+        ]),
+        theme: "striped",
+        headStyles: { fillColor: [71, 85, 105] } // slate-600
+    });
+
+    return doc.output('bloburl');
+};
+
